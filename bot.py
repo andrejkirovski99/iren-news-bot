@@ -10,6 +10,7 @@ NEWS_URL = "https://news.google.com/rss/search?q=%22IREN%20Limited%22&hl=en-US&g
 
 last_news_link = None
 
+LAST_NEWS_FILE = "last_news.txt"
 
 def get_latest_news():
     try:
@@ -79,18 +80,23 @@ async def check_news(context: ContextTypes.DEFAULT_TYPE):
         return
 
     if last_news_link is None:
-        last_news_link = link
-        return
+        try:
+            with open(LAST_NEWS_FILE, "r") as f:
+                last_news_link = f.read().strip()
+        except FileNotFoundError:
+            last_news_link = ""
 
     if link != last_news_link:
         last_news_link = link
+
+        with open(LAST_NEWS_FILE, "w") as f:
+            f.write(link)
 
         for chat_id in context.bot_data.get("subscribers", set()):
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=f"NEW IREN NEWS\n\n{title}\n\n{link}"
             )
-
 
 def main():
     app = Application.builder().token(TOKEN).build()
@@ -101,7 +107,7 @@ def main():
 
     app.job_queue.run_repeating(
         check_news,
-        interval=600,
+        interval=300,
         first=10
     )
 
