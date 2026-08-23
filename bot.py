@@ -12,6 +12,8 @@ last_news_link = None
 
 LAST_NEWS_FILE = "last_news.txt"
 
+SUBSCRIBERS_FILE = "subscribers.txt"
+
 def get_latest_news():
     try:
         response = requests.get(
@@ -61,10 +63,24 @@ async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    if "subscribers" not in context.bot_data:
-        context.bot_data["subscribers"] = set()
+    subscribers = set()
 
-    context.bot_data["subscribers"].add(chat_id)
+    try:
+        with open(SUBSCRIBERS_FILE, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    subscribers.add(int(line))
+    except FileNotFoundError:
+        pass
+
+    subscribers.add(chat_id)
+
+    with open(SUBSCRIBERS_FILE, "w") as f:
+        for subscriber_id in subscribers:
+            f.write(f"{subscriber_id}\n")
+
+    context.bot_data["subscribers"] = subscribers
 
     await update.message.reply_text(
         "Aktivirano. Ke dobivas avtomatski IREN vesti."
