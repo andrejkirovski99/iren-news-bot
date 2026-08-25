@@ -244,18 +244,21 @@ async def send_daily_earnings(
     context: ContextTypes.DEFAULT_TYPE
 ):
     rows = get_earnings_today()
-
     messages = build_earnings_messages(rows)
 
-    for message in messages:
-        try:
-            await context.bot.send_message(
-                chat_id=CHAT_ID,
-                text=message
-            )
-        except Exception as e:
-            print(f"Earnings send error: {e}")
+    subscribers = get_subscribers()
 
+    for chat_id in subscribers:
+        for message in messages:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(chat_id),
+                    text=message
+                )
+            except Exception as e:
+                print(
+                    f"Earnings send error for {chat_id}: {e}"
+                )
 
 async def subscribe(
     update: Update,
@@ -295,14 +298,18 @@ async def check_news(
 
     save_last_news(link)
 
-    try:
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            text=f"NEW IREN NEWS\n\n{title}\n\n{link}"
-        )
-    except Exception as e:
-        print(f"Ne mozam da ispratam poraka: {e}")
+    subscribers = get_subscribers()
 
+    for chat_id in subscribers:
+        try:
+            await context.bot.send_message(
+                chat_id=int(chat_id),
+                text=f"NEW IREN NEWS\n\n{title}\n\n{link}"
+            )
+        except Exception as e:
+            print(
+                f"Ne mozam da ispratam poraka do {chat_id}: {e}"
+            )
 
 def main():
     app = Application.builder().token(TOKEN).build()
