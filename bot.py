@@ -3,6 +3,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 import requests
 import feedparser
 import os
+from datetime import time, datetime
+from zoneinfo import ZoneInfo
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = int(os.environ["TELEGRAM_CHAT_ID"])
@@ -14,6 +16,8 @@ NEWS_URL = (
 
 LAST_NEWS_FILE = "last_news.txt"
 SUBSCRIBERS_FILE = "subscribers.txt"
+
+MALTA_TZ = ZoneInfo("Europe/Malta")
 
 
 def get_latest_news():
@@ -73,6 +77,119 @@ def save_last_news(link):
         file.write(link)
 
 
+def get_earnings_today():
+    today = datetime.now(MALTA_TZ).strftime("%Y-%m-%d")
+
+    url = f"https://api.nasdaq.com/api/calendar/earnings?date={today}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.nasdaq.com/"
+    }
+
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=15
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        rows = (
+            data.get("data", {}).get("rows", [])
+            if data.get("data")
+            else []
+        )
+
+        return rows
+
+    except Exception as e:
+        print(f"Earnings error: {e}")
+        return None
+
+
+def build_earnings_messages(rows):
+    today = datetime.now(MALTA_TZ).strftime("%d %b %Y")
+
+    if rows is None:
+        return [
+            "EARNINGS TODAY\n\n"
+            "Ne uspeav da gi prezemam denesnite earnings."
+        ]
+
+    if not rows:
+        return [
+            f"EARNINGS TODAY - {today}\n\n"
+            "Nema pronajdeni earnings za denes."
+        ]
+
+    pre_market = []
+    after_hours = []
+    unknown = []
+
+    for company in rows:
+        symbol = company.get("symbol") or "N/A"
+        name = company.get("name") or ""
+        report_time = (
+            company.get("time") or ""
+        ).lower()
+
+        line = f"{symbol} - {name}"
+
+        if "pre-market" in report_time:
+            pre_market.append(line)
+        elif "after hours" in report_time:
+            after_hours.append(line)
+        else:
+            unknown.append(line)
+
+    sections = [
+        f"EARNINGS TODAY - {today}\n"
+    ]
+
+    if pre_market:
+        sections.append(
+            "\nBEFORE MARKET OPEN\n" +
+            "\n".join(pre_market)
+        )
+
+    if after_hours:
+        sections.append(
+            "\n\nAFTER MARKET CLOSE\n" +
+            "\n".join(after_hours)
+        )
+
+    if unknown:
+        sections.append(
+            "\n\nTIME NOT SUPPLIED\n" +
+            "\n".join(unknown)
+        )
+
+    full_text = "".join(sections)
+
+    messages = []
+
+    while len(full_text) > 3900:
+        split_at = full_text.rfind("\n", 0, 3900)
+
+        if split_at == -1:
+            split_at = 3900
+
+        messages.append(full_text[:split_at])
+
+        full_text = full_text[split_at:].lstrip()
+
+    if full_text:
+        messages.append(full_text)
+
+    return messages
+
+
 async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -81,6 +198,7 @@ async def start(
         "IREN News Bot e aktiven.\n\n"
         "Komandi:\n"
         "/news - posledna IREN vest\n"
+        "/earnings - denesni earnings\n"
         "/subscribe - aktiviraj avtomatski vesti\n"
         "/id - prikazi Telegram Chat ID"
     )
@@ -110,6 +228,35 @@ async def news(
     )
 
 
+async def earnings(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    rows = get_earnings_today()
+
+    messages = build_earnings_messages(rows)
+
+    for message in messages:
+        await update.message.reply_text(message)
+
+
+async def send_daily_earnings(
+    context: ContextTypes.DEFAULT_TYPE
+):
+    rows = get_earnings_today()
+
+    messages = build_earnings_messages(rows)
+
+    for message in messages:
+        try:
+            await context.bot.send_message(
+                chat_id=CHAT_ID,
+                text=message
+            )
+        except Exception as e:
+            print(f"Earnings send error: {e}")
+
+
 async def subscribe(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -133,7 +280,9 @@ async def show_id(
     )
 
 
-async def check_news(context: ContextTypes.DEFAULT_TYPE):
+async def check_news(
+    context: ContextTypes.DEFAULT_TYPE
+):
     title, link = get_latest_news()
 
     if title == "ERROR" or not title or not link:
@@ -145,7 +294,6 @@ async def check_news(context: ContextTypes.DEFAULT_TYPE):
         return
 
     save_last_news(link)
-
 
     try:
         await context.bot.send_message(
@@ -168,6 +316,10 @@ def main():
     )
 
     app.add_handler(
+        CommandHandler("earnings", earnings)
+    )
+
+    app.add_handler(
         CommandHandler("subscribe", subscribe)
     )
 
@@ -179,9 +331,6 @@ def main():
         print(
             "ERROR: JobQueue ne e instaliran."
         )
-        print(
-            'Instaliraj so: pip install "python-telegram-bot[job-queue]"'
-        )
         return
 
     app.job_queue.run_repeating(
@@ -190,7 +339,17 @@ def main():
         first=10
     )
 
+    app.job_queue.run_daily(
+        send_daily_earnings,
+        time=time(
+            hour=10,
+            minute=30,
+            tzinfo=MALTA_TZ
+        )
+    )
+
     print("IREN botot raboti...")
+    print("Earnings poraka: sekoj den vo 10:30 Malta time")
 
     app.run_polling()
 
