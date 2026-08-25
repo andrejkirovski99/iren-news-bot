@@ -5,6 +5,7 @@ import feedparser
 import os
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+CHAT_ID = int(os.environ["TELEGRAM_CHAT_ID"])
 
 NEWS_URL = (
     "https://news.google.com/rss/search?"
@@ -145,18 +146,14 @@ async def check_news(context: ContextTypes.DEFAULT_TYPE):
 
     save_last_news(link)
 
-    subscribers = get_subscribers()
 
-    for chat_id in subscribers:
-        try:
-            await context.bot.send_message(
-                chat_id=int(chat_id),
-                text=f"NEW IREN NEWS\n\n{title}\n\n{link}"
-            )
-        except Exception as e:
-            print(
-                f"Ne mozam da ispratam do {chat_id}: {e}"
-            )
+    try:
+        await context.bot.send_message(
+            chat_id=CHAT_ID,
+            text=f"NEW IREN NEWS\n\n{title}\n\n{link}"
+        )
+    except Exception as e:
+        print(f"Ne mozam da ispratam poraka: {e}")
 
 
 def main():
