@@ -9,21 +9,39 @@ from zoneinfo import ZoneInfo
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = int(os.environ["TELEGRAM_CHAT_ID"])
 
-NEWS_URL = (
-    "https://news.google.com/rss/search?"
-    "q=%22IREN%20Limited%22&hl=en-US&gl=US&ceid=US:en"
-)
+WATCHLIST = {
+    "IREN": "IREN Limited",
+    "CRWV": "CoreWeave",
+    "NVDA": "NVIDIA",
+    "PLTR": "Palantir Technologies",
+    "IONQ": "IonQ",
+    "QBTS": "D-Wave Quantum",
+    "NBIS": "Nebius Group",
+    "MSFT": "Microsoft",
+    "META": "Meta Platforms",
+    "SNDK": "SanDisk",
+    "MU": "Micron Technology",
+    "AAOI": "Applied Optoelectronics",
+    "SOFI": "SoFi Technologies",
+}
 
 LAST_NEWS_FILE = "last_news.txt"
 SUBSCRIBERS_FILE = "subscribers.txt"
+SENT_NEWS_FILE = "sent_news.txt"
 
 MALTA_TZ = ZoneInfo("Europe/Malta")
 
 
-def get_latest_news():
+def get_company_news(company_name):
+    url = (
+        "https://news.google.com/rss/search?"
+        f"q=%22{company_name.replace(' ', '%20')}%22"
+        "&hl=en-US&gl=US&ceid=US:en"
+    )
+
     try:
         response = requests.get(
-            NEWS_URL,
+            url,
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=10
         )
@@ -33,14 +51,99 @@ def get_latest_news():
         feed = feedparser.parse(response.content)
 
         if not feed.entries:
-            return None, None
+            return []
 
-        latest = feed.entries[0]
+        return feed.entries[:10]
 
-        return latest.title, latest.link
+    except requests.exceptions.RequestException as e:
+        print(f"News error for {company_name}: {e}")
+        return []
 
-    except requests.exceptions.RequestException:
-        return "ERROR", None
+IMPORTANT_KEYWORDS = [
+    # Earnings / financial results
+    "earnings",
+    "results",
+    "revenue",
+    "guidance",
+    "forecast",
+    "outlook",
+    "eps",
+
+    # Deals / AI infrastructure
+    "contract",
+    "deal",
+    "agreement",
+    "partnership",
+    "customer",
+    "client",
+    "data center",
+    "datacenter",
+    "capacity",
+    "gpu",
+    "ai infrastructure",
+
+    # Corporate events
+    "acquisition",
+    "acquire",
+    "merger",
+    "investment",
+    "expansion",
+
+    # Financing
+    "financing",
+    "debt",
+    "loan",
+    "convertible",
+    "offering",
+    "capital raise",
+
+    # Analysts
+    "upgrade",
+    "downgrade",
+    "price target",
+
+    # Management / regulatory
+    "ceo",
+    "cfo",
+    "resigns",
+    "appointed",
+    "sec filing",
+    "investigation",
+
+    # Insider activity
+    "insider",
+    "buys shares",
+    "sells shares"
+]
+
+
+IGNORE_KEYWORDS = [
+    "should you buy",
+    "is it too late",
+    "stock to buy",
+    "stocks to buy",
+    "millionaire maker",
+    "could soar",
+    "could skyrocket",
+    "prediction",
+    "where will",
+    "why is stock",
+    "why stock",
+]
+
+
+def is_important_news(title):
+    title_lower = title.lower()
+
+    for keyword in IGNORE_KEYWORDS:
+        if keyword in title_lower:
+            return False
+
+    for keyword in IMPORTANT_KEYWORDS:
+        if keyword in title_lower:
+            return True
+
+    return False
 
 
 def get_subscribers():
@@ -75,6 +178,27 @@ def get_last_news():
 def save_last_news(link):
     with open(LAST_NEWS_FILE, "w") as file:
         file.write(link)
+
+
+def get_sent_news():
+    if not os.path.exists(SENT_NEWS_FILE):
+        return set()
+
+    with open(SENT_NEWS_FILE, "r") as file:
+        return {
+            line.strip()
+            for line in file.readlines()
+            if line.strip()
+        }
+
+
+def is_news_sent(news_id):
+    return news_id in get_sent_news()
+
+
+def mark_news_sent(news_id):
+    with open(SENT_NEWS_FILE, "a") as file:
+        file.write(news_id + "\n")
 
 
 def get_earnings_today():
@@ -208,25 +332,34 @@ async def news(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    title, link = get_latest_news()
+    messages = []
 
-    if title == "ERROR":
+    for ticker, company_name in WATCHLIST.items():
+        entries = get_company_news(company_name)
+
+        for entry in entries:
+            title = entry.title
+            link = entry.link
+
+            if not is_important_news(title):
+                continue
+
+            messages.append(
+                f"IMPORTANT {ticker} NEWS\n\n"
+                f"{title}\n\n"
+                f"{link}"
+            )
+
+            break
+
+    if not messages:
         await update.message.reply_text(
-            "Google News momentalno ne odgovara. "
-            "Probaj povtorno za kratko."
+            "Nema pronajdeni bitni vesti vo momentov."
         )
         return
 
-    if not title:
-        await update.message.reply_text(
-            "Nema pronajdeni IREN vesti."
-        )
-        return
-
-    await update.message.reply_text(
-        f"IREN NEWS\n\n{title}\n\n{link}"
-    )
-
+    for message in messages:
+        await update.message.reply_text(message)
 
 async def earnings(
     update: Update,
@@ -286,31 +419,45 @@ async def show_id(
 async def check_news(
     context: ContextTypes.DEFAULT_TYPE
 ):
-    title, link = get_latest_news()
-
-    if title == "ERROR" or not title or not link:
-        return
-
-    last_link = get_last_news()
-
-    if link == last_link:
-        return
-
-    save_last_news(link)
-
     subscribers = get_subscribers()
 
-    for chat_id in subscribers:
-        try:
-            await context.bot.send_message(
-                chat_id=int(chat_id),
-                text=f"NEW IREN NEWS\n\n{title}\n\n{link}"
-            )
-        except Exception as e:
-            print(
-                f"Ne mozam da ispratam poraka do {chat_id}: {e}"
+    if not subscribers:
+        return
+
+    for ticker, company_name in WATCHLIST.items():
+        entries = get_company_news(company_name)
+
+        for entry in entries:
+            title = entry.title
+            link = entry.link
+
+            if not is_important_news(title):
+                continue
+
+            news_id = f"{ticker}|{link}"
+
+            if is_news_sent(news_id):
+                continue
+
+            mark_news_sent(news_id)
+
+            message = (
+                f"IMPORTANT {ticker} NEWS\n\n"
+                f"{title}\n\n"
+                f"{link}"
             )
 
+            for chat_id in subscribers:
+                try:
+                    await context.bot.send_message(
+                        chat_id=int(chat_id),
+                        text=message
+                    )
+                except Exception as e:
+                    print(
+                        f"Send error {ticker} "
+                        f"to {chat_id}: {e}"
+                    )
 def main():
     app = Application.builder().token(TOKEN).build()
 
