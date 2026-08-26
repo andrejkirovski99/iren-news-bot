@@ -62,58 +62,72 @@ def get_company_news(company_name):
 IMPORTANT_KEYWORDS = [
     # Earnings / financial results
     "earnings",
-    "results",
-    "revenue",
-    "guidance",
-    "forecast",
-    "outlook",
-    "eps",
+    "quarterly results",
+    "financial results",
+    "raises guidance",
+    "cuts guidance",
+    "lowers guidance",
+    "reaffirms guidance",
+    "beats estimates",
+    "misses estimates",
 
-    # Deals / AI infrastructure
-    "contract",
-    "deal",
-    "agreement",
-    "partnership",
-    "customer",
-    "client",
-    "data center",
-    "datacenter",
-    "capacity",
-    "gpu",
-    "ai infrastructure",
+    # Major contracts / customers
+    "major contract",
+    "multiyear contract",
+    "multi-year contract",
+    "billion contract",
+    "billion deal",
+    "strategic agreement",
+    "strategic partnership",
+    "cloud deal",
 
-    # Corporate events
+    # M&A
     "acquisition",
-    "acquire",
+    "acquires",
     "merger",
-    "investment",
-    "expansion",
+    "takeover",
 
-    # Financing
-    "financing",
-    "debt",
-    "loan",
-    "convertible",
-    "offering",
+    # Financing / shares
+    "debt offering",
+    "convertible notes",
+    "share offering",
+    "stock offering",
+    "public offering",
+    "private placement",
     "capital raise",
 
     # Analysts
-    "upgrade",
-    "downgrade",
-    "price target",
+    "upgraded to buy",
+    "upgraded to outperform",
+    "downgraded to sell",
+    "downgraded to underperform",
+    "raises price target",
+    "cuts price target",
+    "lowers price target",
 
-    # Management / regulatory
-    "ceo",
-    "cfo",
-    "resigns",
-    "appointed",
-    "sec filing",
-    "investigation",
+    # Management
+    "ceo resigns",
+    "cfo resigns",
+    "new ceo",
+    "new cfo",
+    "appoints ceo",
+    "appoints cfo",
+
+    # Regulatory / legal
+    "sec investigation",
+    "doj investigation",
+    "antitrust investigation",
+    "sec charges",
 
     # Insider activity
-    "insider",
-    "buys shares",
-    "sells shares"
+    "insider buys",
+    "insider purchase",
+    "insider sells",
+
+    # Major infrastructure
+    "data center acquisition",
+    "data center expansion",
+    "gigawatt",
 ]
 
 
@@ -424,22 +438,47 @@ async def check_news(
     if not subscribers:
         return
 
+    sent_news = get_sent_news()
+
     for ticker, company_name in WATCHLIST.items():
         entries = get_company_news(company_name)
+
+        important_entries = []
 
         for entry in entries:
             title = entry.title
             link = entry.link
 
-            if not is_important_news(title):
-                continue
+            if is_important_news(title):
+                important_entries.append(entry)
+
+        # Ako botot nema istorija za ovoj ticker,
+        # gi pamti momentalnite vesti bez da gi prakja.
+        ticker_has_history = any(
+            news_id.startswith(f"{ticker}|")
+            for news_id in sent_news
+        )
+
+        if not ticker_has_history:
+            for entry in important_entries:
+                news_id = f"{ticker}|{entry.link}"
+                mark_news_sent(news_id)
+                sent_news.add(news_id)
+
+            continue
+
+        # Posle inicijalizacijata prakja samo novi vesti.
+        for entry in reversed(important_entries):
+            title = entry.title
+            link = entry.link
 
             news_id = f"{ticker}|{link}"
 
-            if is_news_sent(news_id):
+            if news_id in sent_news:
                 continue
 
             mark_news_sent(news_id)
+            sent_news.add(news_id)
 
             message = (
                 f"IMPORTANT {ticker} NEWS\n\n"
