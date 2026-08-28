@@ -146,18 +146,89 @@ IGNORE_KEYWORDS = [
 ]
 
 
-def is_important_news(title):
+def get_news_score(title):
     title_lower = title.lower()
 
+    # Ignoriraj clickbait i nebitni vesti
     for keyword in IGNORE_KEYWORDS:
         if keyword in title_lower:
-            return False
+            return 0
 
-    for keyword in IMPORTANT_KEYWORDS:
+    high_impact = {
+        "major contract": 10,
+        "billion contract": 10,
+        "billion deal": 10,
+        "multiyear contract": 10,
+        "multi-year contract": 10,
+        "acquisition": 10,
+        "acquires": 10,
+        "merger": 10,
+        "takeover": 10,
+        "sec investigation": 10,
+        "doj investigation": 10,
+        "ceo resigns": 10,
+        "cfo resigns": 10,
+        "bankruptcy": 10,
+        "default": 10,
+
+        "raises guidance": 9,
+        "cuts guidance": 9,
+        "lowers guidance": 9,
+        "beats estimates": 9,
+        "misses estimates": 9,
+        "strategic agreement": 9,
+        "strategic partnership": 9,
+        "cloud deal": 9,
+        "data center acquisition": 9,
+        "data center expansion": 9,
+        "gigawatt": 9,
+        "share offering": 9,
+        "stock offering": 9,
+        "public offering": 9,
+        "private placement": 9,
+        "convertible notes": 9,
+        "debt offering": 9,
+
+        "earnings": 8,
+        "quarterly results": 8,
+        "financial results": 8,
+        "reaffirms guidance": 8,
+        "new ceo": 8,
+        "new cfo": 8,
+        "appoints ceo": 8,
+        "appoints cfo": 8,
+        "insider buys": 8,
+        "insider purchase": 8,
+    }
+
+    score = 0
+
+    for keyword, keyword_score in high_impact.items():
         if keyword in title_lower:
-            return True
+            score = max(score, keyword_score)
 
-    return False
+    important_companies = [
+        "microsoft",
+        "nvidia",
+        "meta",
+        "amazon",
+        "google",
+        "alphabet",
+        "openai",
+        "oracle",
+        "anthropic",
+    ]
+
+    for company in important_companies:
+        if company in title_lower and score >= 7:
+            score = min(score + 1, 10)
+            break
+
+    return score
+
+
+def is_important_news(title):
+    return get_news_score(title) >= 8
 
 
 def get_subscribers():
